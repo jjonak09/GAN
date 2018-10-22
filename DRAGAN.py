@@ -1,154 +1,200 @@
 from __future__ import print_function, division
 import keras.backend as K
-K.set_image_data_format('channels_first')
 from keras.layers import Input, Dense, Reshape, Flatten, Dropout
-from keras.layers import BatchNormalization, Activation, ZeroPadding2D,ZeroPadding2D
+from keras.layers import Activation
 from keras.layers.advanced_activations import LeakyReLU
 from keras.activations import relu
-from keras.layers.convolutional import Conv2D, Conv2DTranspose,Cropping2D
-from keras.models import Sequential, Model
-from keras.optimizers import Adam
+from keras.layers.convolutional import Conv2D, Conv2DTranspose
+from keras.models import Model, Sequential
 from keras.initializers import RandomNormal
-import sys,os
 import numpy as np
 import matplotlib.pyplot as plt
+import argparse
+from keras.optimizers import Adam
+conv_init = RandomNormal(0, 0.02)  # ネットワーク重み平均0,標準偏差0.02
 
 
-class DRAGAN():
-    def __init__(self):
+def generator(z_dim):
 
-         # -----------------
-         # Parameters
-         # -----------------
+    model = Sequential()
 
-        self.image_size = 64
-        self.channels = 3
-        self.img_shape = (self.channels,self.image_size, self.image_size)
-        self.z_dim = 100
-        self.Diters = 5
-        self.λ = 10
-        #learning rate
-        self.lrD = 1e-4
-        self.lrG = 1e-4
-    
-        self.conv_init = RandomNormal(0, 0.02)
-        self.gamma_init = RandomNormal(1., 0.02)
+    model.add(Dense(512 * 4 * 4, activation="relu",
+                    input_dim=z_dim, use_bias=False, kernel_initializer=conv_init))
+    model.add(Reshape((4, 4, 512)))
+    model.add(Conv2DTranspose(256, 4, strides=2, padding="same", use_bias=False,
+                              kernel_initializer=conv_init))  # 8x8x256
+    model.add(Activation("relu"))
+    model.add(Conv2DTranspose(128, 4, strides=2, padding="same", use_bias=False,
+                              kernel_initializer=conv_init,))  # 16x16x128
+    model.add(Activation("relu"))
+    model.add(Conv2DTranspose(64, 4,  strides=2, padding="same", use_bias=False,
+                              kernel_initializer=conv_init))  # 32x32x64
+    model.add(Activation("relu"))
+    model.add(Conv2DTranspose(3, 4,  strides=2,
+                              padding="same", use_bias=False,
+                              kernel_initializer=conv_init))  # 64x64x3
+    model.add(Activation("tanh"))
 
-        self.dis = self.build_discriminator()
-        self.gen = self.build_generator()
-
-        # -----------------
-        # compute Wasserstein loss and gradient penalty
-        # -----------------
-
-        self.dis_real_input = Input(shape=(self.channels,self.image_size, self.image_size))
-        self.noise = Input(shape=(self.z_dim,))
-        self.dis_fake_input = self.gen(self.noise)
-
-        self.ϵ_input = K.placeholder(shape=(None,self.channels,self.image_size, self.image_size))
-        self.dis_mixed_input = Input(shape=(self.channels, self.image_size, self.image_size), tensor=self.dis_real_input + self.ϵ_input)
-        
-        self.loss_real = K.mean(self.dis(self.dis_real_input))
-        self.loss_fake = K.mean(self.dis(self.dis_fake_input))
-
-        self.grad_mixed = K.gradients(self.dis(self.dis_mixed_input),[self.dis_mixed_input])[0]
-        self.norm_grad_mixed = K.sqrt(K.sum(K.square(self.grad_mixed),axis=[1,2,3]))
-        self.grad_penalty = K.mean(K.square(self.norm_grad_mixed -1))
-
-        self.loss = self.loss_fake - self.loss_real + self.λ * self.grad_penalty
-
-        # -----------------
-        # loss for dis
-        # -----------------
-        self.dis.trainable_weights
-        self.training_updates = Adam(lr=self.lrD).get_updates(
-            self.dis.trainable_weights, [], self.loss)
-
-        self.dis_train = K.function(
-            [self.dis_real_input, self.noise, self.ϵ_input],
-            [self.loss_real,self.loss_fake],
-            self.training_updates)
-
-        # -----------------
-        # loss for gen
-        # -----------------
-        self.loss = -self.loss_fake
-        self.training_updates = Adam(lr=self.lrG).get_updates(
-            self.gen.trainable_weights,[],self.loss)
-
-        self.gen_train = K.function(
-            [self.noise],
-            [self.loss],
-            self.training_updates)
+    noise = Input(shape=(z_dim,))
+    img = model(noise)
+    return Model(noise, img)
 
 
+def discriminator(img_shape):
+
+    model = Sequential()
+
+    model.add(Conv2D(64, 4, strides=2,
+                     input_shape=img_shape, padding="same", use_bias=False,
+                     kernel_initializer=conv_init))  # 32x32x64
+    model.add(LeakyReLU(alpha=0.2))
+    model.add(Conv2D(128, 4, strides=2, padding="same", use_bias=False,
+                     kernel_initializer=conv_init))  # 16x16x128
+    model.add(LeakyReLU(alpha=0.2))
+    model.add(Conv2D(256, 4, strides=2, padding="same", use_bias=False,
+                     kernel_initializer=conv_init))  # 8x8x256
+    model.add(LeakyReLU(alpha=0.2))
+    model.add(Conv2D(512, 4, strides=2, padding="same", use_bias=False,
+                     kernel_initializer=conv_init))  # 4x4x512
+    model.add(LeakyReLU(alpha=0.2))
+    model.add(Conv2D(1, 4, strides=1, use_bias=False,
+                     kernel_initializer=conv_init))  # 4x4x512
+    model.add(Flatten())
+
+    img = Input(shape=img_shape)
+    validity = model(img)
+
+    return Model(img, validity)
 
 
-    def build_discriminator(self):
+# -----------------
+# parameters
+# -----------------
+parser = argparse.ArgumentParser(description="test")
+parser.add_argument("--type", default=None,
+                    help="select gan type, Normal or RaGAN")
+parser.add_argument("--epoch", default=1000, type=int,
+                    help="the number of epochs")
+parser.add_argument("--save_interval", default=10, type=int,
+                    help="the interval of snapshot")
+parser.add_argument("--model_interval", default=500, type=int,
+                    help="the interval of savemodel")
+parser.add_argument("--batchsize", default=100, type=int, help="batch size")
+parser.add_argument("--lam", default=10.0, type=float,
+                    help="the weight of regularizer")
 
-            model = Sequential()
+args = parser.parse_args()
+gan_type = args.type
+epochs = args.epoch
+save_interval = args.save_interval
+model_interval = args.model_interval
+batch_size = args.batchsize
+_lambda = args.lam
+z_dim = 100
+img_shape = (64, 64, 3)
+image_size = 64
+channels = 3
+lr_D = 1e-4
+lr_G = 1e-4
 
-            model.add(Conv2D(64, kernel_size=4, strides=2,
-                            input_shape=self.img_shape, padding="same",
-                            use_bias=False,kernel_initializer=self.conv_init))  
-            model.add(LeakyReLU(alpha=0.2))
-            model.add(Conv2D(128, kernel_size=4, strides=2, padding="same",
-                            use_bias=False, kernel_initializer=self.conv_init))  
-            model.add(LeakyReLU(alpha=0.2))
-            model.add(Conv2D(256, kernel_size=4, strides=2, padding="same",
-                            use_bias=False, kernel_initializer=self.conv_init))  
-            model.add(LeakyReLU(alpha=0.2))
-            model.add(Conv2D(512, kernel_size=4, strides=2, padding="same",
-                            use_bias=False, kernel_initializer=self.conv_init)) 
-            model.add(LeakyReLU(alpha=0.2))
-            model.add(Conv2D(1, kernel_size=4, strides=1,
-                             use_bias=False, kernel_initializer=self.conv_init))
-            model.add(Flatten())
+gen = generator(z_dim)  # modelが入ってる
+dis = discriminator(img_shape)
 
-            model.summary()
+# -----------------
+# load dataset
+# -----------------
 
-            img = Input(shape=self.img_shape) #inputs
-            validity = model(img)  #outputs
-
-            return Model(img, validity)
-
-
-    def build_generator(self):
-
-            model = Sequential()
-
-            model.add(Dense(4 * 4 * 512, activation="relu",
-                            input_dim=self.z_dim))
-            model.add(Reshape((512,4, 4)))
-            model.add(Conv2DTranspose(256, 4, strides=2,
-                                    padding="same",
-                                    use_bias=False, kernel_initializer=self.conv_init))  # 8x8x256
-            model.add(Activation("relu"))
-            model.add(Conv2DTranspose(128, 4, strides=2,
-                                    padding="same",
-                                    use_bias=False, kernel_initializer=self.conv_init))  # 16x16x128
-            model.add(Activation("relu"))
-            model.add(Conv2DTranspose(64, 4,  strides=2,
-                                    padding="same",
-                                    use_bias=False, kernel_initializer=self.conv_init))  # 32x32x64
-            model.add(Activation("relu"))
-            model.add(Conv2DTranspose(self.channels, 4,  strides=2,
-                                    padding="same",
-                                    use_bias=False, kernel_initializer=self.conv_init))  # 64x64x3
-            model.add(Activation("tanh"))
-
-            model.summary()  # modelの要約を出力
-
-            noise = Input(shape=(self.z_dim,)) #inputs
-            img = model(noise)  #outputs
-
-            return Model(noise, img)
+X_train, X_test = np.load('./Vtuber_keras.npy')
+X_train = np.float32(X_train)
+X_train = X_train/127.5 - 1
+X_train = np.expand_dims(X_train, axis=3)
+X_train = X_train.reshape(
+    X_train.shape[0], X_train.shape[1], X_train.shape[2], X_train.shape[4])
 
 
-    def train(self, epochs, batch_size=32, sava_interval=50):
-        print("a")
+# -----------------
+# compute grandient penalty
+# -----------------
 
+dis_real = Input(shape=(image_size, image_size, channels))
+noisev = Input(shape=(z_dim,))
+dis_fake = gen(noisev)
 
-if __name__ == '__main__':
-    dragan = DRAGAN()
-    dragan.train(epochs=4000, batch_size=32, sava_interval=50)
+delta_input = K.placeholder(shape=(None, image_size, image_size, channels))
+alpha = K.random_uniform(
+    shape=[batch_size, 1, 1, 1],
+    minval=0.,
+    maxval=1.
+)
+
+dis_mixed = Input(shape=(image_size, image_size, channels),
+                  tensor=dis_real + delta_input)
+
+loss_real = K.mean(dis(dis_real))
+loss_fake = K.mean(dis(dis_fake))
+
+dis_mixed_real = alpha * dis_real + ((1 - alpha) * dis_mixed)
+
+grad_mixed = K.gradients(dis(dis_mixed_real), [dis_mixed_real])[0]
+norm = K.sqrt(K.sum(K.square(grad_mixed), axis=[1, 2, 3]))
+
+grad_penalty = K.mean(K.square(norm - 1))
+
+loss_dis = loss_fake - loss_real + _lambda * grad_penalty
+
+# -----------------
+# loss for discriminator
+# -----------------
+
+training_updates = Adam(lr=lr_D).get_updates(
+    dis.trainable_weights, [], loss_dis)
+dis_train = K.function([dis_real, noisev, delta_input],
+                       [loss_real, loss_fake],
+                       training_updates)
+
+# -----------------
+# loss for generator
+# -----------------
+
+loss_gen = -loss_fake
+training_updates = Adam(lr=lr_G).get_updates(
+    gen.trainable_weights, [], loss_gen)
+gen_train = K.function([noisev],
+                       [loss_gen],
+                       training_updates)
+
+fixed_noise = np.random.normal(size=(36, z_dim))
+batch = X_train.shape[0] // batch_size
+
+for epoch in range(epochs):
+    print("Epoch is", epoch)
+    for index in range(batch):
+
+        idx = np.random.randint(0, X_train.shape[0], batch_size)
+        image_batch = X_train[idx]
+        noise = np.random.normal(size=(batch_size, z_dim))
+        delta = 0.5 * image_batch.std() * np.random.random(size=image_batch.shape)
+        delta *= np.random.uniform(size=(batch_size, 1, 1, 1))
+        errD_real, errD_fake = dis_train([image_batch, noise, delta])
+        errD = errD_real - errD_fake
+
+        errG, = gen_train([noise])
+        print('%d/%d  Loss_D: %f Loss_G: %f Loss_D_real: %f Loss_D_fake %f'
+              % (index, batch, errD, errG, errD_real, errD_fake))
+
+        if epoch % save_interval == 0 and index == 0:
+            gen_imgs = gen.predict(fixed_noise)
+            r, c = 5, 5
+            # Rescale images 0 - 1
+            gen_imgs = 0.5 * gen_imgs + 0.5
+            fig, axs = plt.subplots(r, c)
+            cnt = 0
+            for i in range(r):
+                for j in range(c):
+                    axs[i, j].imshow(gen_imgs[cnt])
+                    axs[i, j].axis('off')
+                    cnt += 1
+            fig.savefig("result_img/Vtuber_%d.png" % epoch)
+            plt.close()
+            if epoch % model_interval == 0 and index == 0:
+                gen.save("DRAGAN_model/dcgan-{}-epoch.h5".format(epoch))
