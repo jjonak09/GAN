@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8 ">
+    <title>GAN using Tensorflow.js</title>
+    <!-- <link rel="stylesheet " href="./style.css ">  -->
+    <meta name="viewport " content="width=device-width, initial-scale=1.0 " />
+</head>
+
+<body>
+
+
+    <div class="container ">
+
+
+        <nav>
+            <div>
+                <a href="# ">GAN Showcase</a>
+
+                <ul id="nav-mobile " class="right ">
+                    <!-- <li>
+                        <a href="https://alantian.net " class="teal-text text-darken-3 ">by Yingtao Tian</a>
+                    </li> -->
+                </ul>
+            </div>
+        </nav>
+
+        <div class="generation-panel ">
+
+            <div class="canvas-wrapper " id="canvas-wrapper " width="256 " height="256 ">
+                <canvas id="the_canvas" width="256 " height="256 ">
+                    Your browser does not support the canvas element.
+                </canvas>
+            </div>
+        </div>
+        <div>
+            <button id="generate-button">
+                Generate
+            </button>
+        </div>
+    </div>
+
+
+    <!-- <script src="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0-beta/js/materialize.min.js "></script> -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@0.13.0"></script>
+    <!-- <script src="./index.js "></script> -->
+    <script>
+
+        function init() {
+            var canvas = document.getElementById("the_canvas");
+            var ctx = canvas.getContext("2d");
+            canvas.width = 240;
+            canvas.height = 240;
+            ctx.fillStyle = 'black';
+            ctx.rect(0, 0, 240, 240);
+            ctx.fill();
+        }
+        window.onload = init();
+
+        document.getElementById('generate-button').onclick = ui_generate_button_event_listener;
+
+        function ui_generate_button_event_listener(event) {
+            tf.loadModel('model/model.json').then(handleModel).catch(handleError);
+            function handleModel(model) {
+                // 正常に読み込まれた時の処理
+                // 必要なら入出力shapeを保存
+                console.log("ok")
+                // modelの操作...
+                const y = tf.tidy(() => {
+                    const z = tf.randomNormal([1, 100]);
+                    const y = model.predict(z).squeeze().div(tf.scalar(2)).add(tf.scalar(0.5));
+                    return image_enlarge(y, 4);
+                });
+                let c = document.getElementById("the_canvas");
+                tf.toPixels(y, c);
+            }
+            function handleError(error) {
+                // エラー処理
+                console.log("no")
+            }
+
+        }
+
+        function image_enlarge(y, draw_multiplier) {
+            if (draw_multiplier === 1) {
+                return y;
+            }
+            let size = y.shape[0];
+            return y.expandDims(2).tile([1, 1, draw_multiplier, 1]
+            ).reshape([size, size * draw_multiplier, 3]
+            ).expandDims(1).tile([1, draw_multiplier, 1, 1]
+            ).reshape([size * draw_multiplier, size * draw_multiplier, 3])
+        }
+
+
+        // noise = np.random.normal(0, 1, (1, 100))
+        // gen_img = generator.predict(noise)
+        // print(gen_img.shape)
+        // gen_img = ((gen_img - gen_img.min()) * 255 /
+        //            (gen_img.max() - gen_img.min())).astype(np.uint8)
+        // gen_img = gen_img.reshape(1, -1, 64, 64, 3).swapaxes(1,
+        //                                                      2).reshape(1 * 64, -1, 3)
+    </script>
+
+</body>
+
+</html>
