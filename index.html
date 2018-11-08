@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8 ">
+    <title>DRAGAN using Tensorflow.js</title>
+    <link rel="stylesheet " href="./style.css ">
+    <meta name="viewport " content="width=device-width, initial-scale=1.0 " />
+</head>
+
+<body>
+
+
+    <header>
+        <h1>Vtuber Generator</h1>
+    </header>
+
+    <div class="generation-panel ">
+
+        <div class="canvas-wrapper " id="canvas-wrapper " width="256 " height="256 ">
+            <canvas class="canvas" id="the_canvas" width="256 " height="256 ">
+                Your browser does not support the canvas element.
+            </canvas>
+        </div>
+    </div>
+    <div class="row">
+        <button class="square_btn" id="generate-button">
+            Generate
+        </button>
+    </div>
+    <hr style="border:0;border-top:2px dotted rosybrown;">
+
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@0.13.0"></script>
+    <script src="./index.js "></script>
+</body>
+
+</html>

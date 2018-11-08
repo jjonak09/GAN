@@ -1,0 +1,48 @@
+header{
+padding: 20px 0;
+font-family: Verdana,sans-serif;
+color:rgb(0, 128, 122);
+background-color: rgba(241, 225, 245, 0.336);
+}
+header h1{
+    margin-top: 0;
+    text-align: center;
+}
+
+body{
+    margin:0;
+}
+
+body hr{
+    margin: 100px 80px 0px 80px;
+}
+.generation-panel {
+    margin-top: 30px;
+    /* text-align: center; */
+    padding-left: 250px;
+}
+
+.canvas{
+    position: relative;
+    outline: 3px dotted rgb(243, 186, 29);
+    margin: 30px 0;
+}
+.row{
+    /* text-align: center; */
+    padding-left: 320px;
+}
+
+.square_btn {
+    /* display: inline-block; */
+    padding: 0.8em 2em;
+    text-decoration: none;
+    color: #ff8567;
+    border: solid 2px #ff8567;
+    border-radius: 3px;
+    transition: .4s;
+}
+
+.square_btn:hover {
+    background: #ff8567;
+    color: white;
+}
